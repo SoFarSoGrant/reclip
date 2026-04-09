@@ -24,6 +24,11 @@ def setup_cookies():
             print("[reclip] Cookies loaded from COOKIES_B64 env var.")
         except Exception as e:
             print(f"[reclip] Warning: Failed to decode COOKIES_B64: {e}")
+    else:
+        print("[reclip] No COOKIES_B64 env var found — running without cookies.")
+
+# Called at import time so it runs under both gunicorn and direct `python app.py`
+setup_cookies()
 
 def cookies_args():
     if os.path.exists(COOKIES_FILE):
@@ -41,8 +46,6 @@ def run_download(job_id, url, format_choice, format_id):
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     elif format_id:
-        # Use height-based selection for reliability — specific format IDs can
-        # differ between the info and download requests on cloud IPs.
         cmd += [
             "-f", f"bestvideo[height<={format_id}]+bestaudio/best/bestvideo+bestaudio/best",
             "--merge-output-format", "mp4",
@@ -132,7 +135,7 @@ def get_info():
         formats = []
         for height in best_by_height:
             formats.append({
-                "id": str(height),   # pass height as the ID so download can use height-based selection
+                "id": str(height),
                 "label": f"{height}p",
                 "height": height,
             })
@@ -194,7 +197,6 @@ def download_file(job_id):
 
 
 if __name__ == "__main__":
-    setup_cookies()
     port = int(os.environ.get("PORT", 8899))
     host = os.environ.get("HOST", "0.0.0.0")
     app.run(host=host, port=port)
