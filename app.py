@@ -15,19 +15,17 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 COOKIES_FILE = "/tmp/yt_cookies.txt"
 
 def setup_cookies():
-    """Decode COOKIES_B64 env var and write to a temp cookies file on startup."""
     cookies_b64 = os.environ.get("COOKIES_B64", "").strip()
     if cookies_b64:
         try:
             decoded = base64.b64decode(cookies_b64).decode("utf-8")
             with open(COOKIES_FILE, "w") as f:
                 f.write(decoded)
-            print(f"[reclip] Cookies loaded from COOKIES_B64 env var.")
+            print("[reclip] Cookies loaded from COOKIES_B64 env var.")
         except Exception as e:
             print(f"[reclip] Warning: Failed to decode COOKIES_B64: {e}")
 
 def cookies_args():
-    """Return yt-dlp --cookies flag if the cookies file exists."""
     if os.path.exists(COOKIES_FILE):
         return ["--cookies", COOKIES_FILE]
     return []
@@ -43,7 +41,12 @@ def run_download(job_id, url, format_choice, format_id):
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     elif format_id:
-        cmd += ["-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
+        # Use height-based selection for reliability — specific format IDs can
+        # differ between the info and download requests on cloud IPs.
+        cmd += [
+            "-f", f"bestvideo[height<={format_id}]+bestaudio/best/bestvideo+bestaudio/best",
+            "--merge-output-format", "mp4",
+        ]
     else:
         cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
 
@@ -127,9 +130,9 @@ def get_info():
                     best_by_height[height] = f
 
         formats = []
-        for height, f in best_by_height.items():
+        for height in best_by_height:
             formats.append({
-                "id": f["format_id"],
+                "id": str(height),   # pass height as the ID so download can use height-based selection
                 "label": f"{height}p",
                 "height": height,
             })
