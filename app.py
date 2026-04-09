@@ -2,22 +2,43 @@ import os
 import uuid
 import glob
 import json
+import base64
 import subprocess
 import threading
 from flask import Flask, request, jsonify, send_file, render_template
 
 app = Flask(__name__)
+
 DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-jobs = {}
+COOKIES_FILE = "/tmp/yt_cookies.txt"
 
+def setup_cookies():
+    """Decode COOKIES_B64 env var and write to a temp cookies file on startup."""
+    cookies_b64 = os.environ.get("COOKIES_B64", "").strip()
+    if cookies_b64:
+        try:
+            decoded = base64.b64decode(cookies_b64).decode("utf-8")
+            with open(COOKIES_FILE, "w") as f:
+                f.write(decoded)
+            print(f"[reclip] Cookies loaded from COOKIES_B64 env var.")
+        except Exception as e:
+            print(f"[reclip] Warning: Failed to decode COOKIES_B64: {e}")
+
+def cookies_args():
+    """Return yt-dlp --cookies flag if the cookies file exists."""
+    if os.path.exists(COOKIES_FILE):
+        return ["--cookies", COOKIES_FILE]
+    return []
+
+jobs = {}
 
 def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "-o", out_template]
+    cmd = ["yt-dlp", "--no-playlist", "-o", out_template] + cookies_args()
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
@@ -30,6 +51,7 @@ def run_download(job_id, url, format_choice, format_id):
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
         if result.returncode != 0:
             job["status"] = "error"
             job["error"] = result.stderr.strip().split("\n")[-1]
@@ -57,14 +79,15 @@ def run_download(job_id, url, format_choice, format_id):
 
         job["status"] = "done"
         job["file"] = chosen
+
         ext = os.path.splitext(chosen)[1]
         title = job.get("title", "").strip()
-        # Sanitize title for filename
         if title:
-            safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:20].strip()
+            safe_title = "".join(c for c in title if c not in r'\/:\*?"<>|').strip()[:80].strip()
             job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
         else:
             job["filename"] = os.path.basename(chosen)
+
     except subprocess.TimeoutExpired:
         job["status"] = "error"
         job["error"] = "Download timed out (5 min limit)"
@@ -85,15 +108,16 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url]
+    cmd = ["yt-dlp", "--no-playlist", "-j"] + cookies_args() + [url]
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
         if result.returncode != 0:
             return jsonify({"error": result.stderr.strip().split("\n")[-1]}), 400
 
         info = json.loads(result.stdout)
 
-        # Build quality options — keep best format per resolution
         best_by_height = {}
         for f in info.get("formats", []):
             height = f.get("height")
@@ -118,6 +142,7 @@ def get_info():
             "uploader": info.get("uploader", ""),
             "formats": formats,
         })
+
     except subprocess.TimeoutExpired:
         return jsonify({"error": "Timed out fetching video info"}), 400
     except Exception as e:
@@ -166,6 +191,7 @@ def download_file(job_id):
 
 
 if __name__ == "__main__":
+    setup_cookies()
     port = int(os.environ.get("PORT", 8899))
-    host = os.environ.get("HOST", "127.0.0.1")
+    host = os.environ.get("HOST", "0.0.0.0")
     app.run(host=host, port=port)
