@@ -27,13 +27,20 @@ def setup_cookies():
     else:
         print("[reclip] No COOKIES_B64 env var found — running without cookies.")
 
-# Called at import time so it runs under both gunicorn and direct `python app.py`
+# Runs at import time so gunicorn picks it up
 setup_cookies()
 
-def cookies_args():
+def yt_args():
+    """
+    Use the iOS + TV Embedded player clients to avoid bot detection on
+    datacenter IPs. These clients use a different YouTube API endpoint
+    that does not require a browser-based proof-of-origin token.
+    Cookies are included when available for age-restricted content.
+    """
+    args = ["--extractor-args", "youtube:player_client=ios,tv_embedded"]
     if os.path.exists(COOKIES_FILE):
-        return ["--cookies", COOKIES_FILE]
-    return []
+        args += ["--cookies", COOKIES_FILE]
+    return args
 
 jobs = {}
 
@@ -41,7 +48,7 @@ def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "-o", out_template] + cookies_args()
+    cmd = ["yt-dlp", "--no-playlist", "-o", out_template] + yt_args()
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
@@ -114,7 +121,7 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j"] + cookies_args() + [url]
+    cmd = ["yt-dlp", "--no-playlist", "-j"] + yt_args() + [url]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
