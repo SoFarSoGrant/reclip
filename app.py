@@ -27,13 +27,9 @@ def setup_cookies():
     else:
         print("[reclip] No COOKIES_B64 env var found — running without cookies.")
 
-# Runs at import time so gunicorn picks it up
 setup_cookies()
 
 def yt_args():
-    # iOS + TV Embedded clients bypass datacenter bot detection.
-    # These clients return combined video+audio streams only — no separate
-    # bestvideo/bestaudio tracks — so format selection must not use '+' merging.
     args = ["--extractor-args", "youtube:player_client=ios,tv_embedded"]
     if os.path.exists(COOKIES_FILE):
         args += ["--cookies", COOKIES_FILE]
@@ -41,7 +37,7 @@ def yt_args():
 
 jobs = {}
 
-def run_download(job_id, url, format_choice, format_id):
+def run_download(job_id, url, format_choice):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
@@ -49,12 +45,8 @@ def run_download(job_id, url, format_choice, format_id):
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
-    elif format_id:
-        # Single combined stream at or below the requested height.
-        # No '+' merging — iOS client doesn't have separate streams.
-        cmd += ["-f", f"best[height<={format_id}]/best"]
-    else:
-        cmd += ["-f", "best"]
+    # For video, let yt-dlp pick the best available — no format filtering.
+    # This avoids all format-availability errors across different clients/IPs.
 
     cmd.append(url)
 
@@ -76,7 +68,6 @@ def run_download(job_id, url, format_choice, format_id):
             target = [f for f in files if f.endswith(".mp3")]
             chosen = target[0] if target else files[0]
         else:
-            # Prefer mp4 but accept anything
             target = [f for f in files if f.endswith(".mp4")]
             chosen = target[0] if target else files[0]
 
@@ -128,33 +119,12 @@ def get_info():
 
         info = json.loads(result.stdout)
 
-        # With iOS client, formats are combined streams. Filter to those that
-        # have both video and audio (acodec != 'none', vcodec != 'none').
-        best_by_height = {}
-        for f in info.get("formats", []):
-            height = f.get("height")
-            has_video = f.get("vcodec", "none") != "none"
-            has_audio = f.get("acodec", "none") != "none"
-            if height and has_video and has_audio:
-                tbr = f.get("tbr") or 0
-                if height not in best_by_height or tbr > (best_by_height[height].get("tbr") or 0):
-                    best_by_height[height] = f
-
-        formats = []
-        for height in best_by_height:
-            formats.append({
-                "id": str(height),
-                "label": f"{height}p",
-                "height": height,
-            })
-        formats.sort(key=lambda x: x["height"], reverse=True)
-
         return jsonify({
             "title": info.get("title", ""),
             "thumbnail": info.get("thumbnail", ""),
             "duration": info.get("duration"),
             "uploader": info.get("uploader", ""),
-            "formats": formats,
+            "formats": [],  # No quality picker — yt-dlp selects best automatically
         })
 
     except subprocess.TimeoutExpired:
@@ -168,7 +138,6 @@ def start_download():
     data = request.json
     url = data.get("url", "").strip()
     format_choice = data.get("format", "video")
-    format_id = data.get("format_id")
     title = data.get("title", "")
 
     if not url:
@@ -177,7 +146,7 @@ def start_download():
     job_id = uuid.uuid4().hex[:10]
     jobs[job_id] = {"status": "downloading", "url": url, "title": title}
 
-    thread = threading.Thread(target=run_download, args=(job_id, url, format_choice, format_id))
+    thread = threading.Thread(target=run_download, args=(job_id, url, format_choice))
     thread.daemon = True
     thread.start()
 
