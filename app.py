@@ -31,6 +31,9 @@ def setup_cookies():
 setup_cookies()
 
 def yt_args():
+    # iOS + TV Embedded clients bypass datacenter bot detection.
+    # These clients return combined video+audio streams only — no separate
+    # bestvideo/bestaudio tracks — so format selection must not use '+' merging.
     args = ["--extractor-args", "youtube:player_client=ios,tv_embedded"]
     if os.path.exists(COOKIES_FILE):
         args += ["--cookies", COOKIES_FILE]
@@ -47,18 +50,11 @@ def run_download(job_id, url, format_choice, format_id):
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     elif format_id:
-        # Try merging separate streams first, then fall back to a combined
-        # stream at the requested height, then fall back to absolute best.
-        # This handles iOS client which often returns combined-only formats.
-        cmd += [
-            "-f", f"bestvideo[height<={format_id}]+bestaudio/best[height<={format_id}]/best",
-            "--merge-output-format", "mp4",
-        ]
+        # Single combined stream at or below the requested height.
+        # No '+' merging — iOS client doesn't have separate streams.
+        cmd += ["-f", f"best[height<={format_id}]/best"]
     else:
-        cmd += [
-            "-f", "bestvideo+bestaudio/best",
-            "--merge-output-format", "mp4",
-        ]
+        cmd += ["-f", "best"]
 
     cmd.append(url)
 
@@ -80,6 +76,7 @@ def run_download(job_id, url, format_choice, format_id):
             target = [f for f in files if f.endswith(".mp3")]
             chosen = target[0] if target else files[0]
         else:
+            # Prefer mp4 but accept anything
             target = [f for f in files if f.endswith(".mp4")]
             chosen = target[0] if target else files[0]
 
@@ -131,10 +128,14 @@ def get_info():
 
         info = json.loads(result.stdout)
 
+        # With iOS client, formats are combined streams. Filter to those that
+        # have both video and audio (acodec != 'none', vcodec != 'none').
         best_by_height = {}
         for f in info.get("formats", []):
             height = f.get("height")
-            if height and f.get("vcodec", "none") != "none":
+            has_video = f.get("vcodec", "none") != "none"
+            has_audio = f.get("acodec", "none") != "none"
+            if height and has_video and has_audio:
                 tbr = f.get("tbr") or 0
                 if height not in best_by_height or tbr > (best_by_height[height].get("tbr") or 0):
                     best_by_height[height] = f
