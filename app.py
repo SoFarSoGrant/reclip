@@ -45,8 +45,11 @@ def run_download(job_id, url, format_choice):
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
-    # For video, let yt-dlp pick the best available — no format filtering.
-    # This avoids all format-availability errors across different clients/IPs.
+    else:
+        # Explicitly request a single combined stream.
+        # yt-dlp's default (bestvideo+bestaudio) fails with the iOS client
+        # since it only serves combined streams, not separate tracks.
+        cmd += ["-f", "best"]
 
     cmd.append(url)
 
