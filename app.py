@@ -31,12 +31,6 @@ def setup_cookies():
 setup_cookies()
 
 def yt_args():
-    """
-    Use the iOS + TV Embedded player clients to avoid bot detection on
-    datacenter IPs. These clients use a different YouTube API endpoint
-    that does not require a browser-based proof-of-origin token.
-    Cookies are included when available for age-restricted content.
-    """
     args = ["--extractor-args", "youtube:player_client=ios,tv_embedded"]
     if os.path.exists(COOKIES_FILE):
         args += ["--cookies", COOKIES_FILE]
@@ -53,12 +47,18 @@ def run_download(job_id, url, format_choice, format_id):
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     elif format_id:
+        # Try merging separate streams first, then fall back to a combined
+        # stream at the requested height, then fall back to absolute best.
+        # This handles iOS client which often returns combined-only formats.
         cmd += [
-            "-f", f"bestvideo[height<={format_id}]+bestaudio/best/bestvideo+bestaudio/best",
+            "-f", f"bestvideo[height<={format_id}]+bestaudio/best[height<={format_id}]/best",
             "--merge-output-format", "mp4",
         ]
     else:
-        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
+        cmd += [
+            "-f", "bestvideo+bestaudio/best",
+            "--merge-output-format", "mp4",
+        ]
 
     cmd.append(url)
 
