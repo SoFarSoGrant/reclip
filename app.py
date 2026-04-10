@@ -30,7 +30,9 @@ def setup_cookies():
 setup_cookies()
 
 def yt_args():
-    args = ["--extractor-args", "youtube:player_client=ios,tv_embedded"]
+    # The android client bypasses datacenter bot detection and returns
+    # full format listings including separate video+audio streams.
+    args = ["--extractor-args", "youtube:player_client=android"]
     if os.path.exists(COOKIES_FILE):
         args += ["--cookies", COOKIES_FILE]
     return args
@@ -46,10 +48,7 @@ def run_download(job_id, url, format_choice):
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     else:
-        # Explicitly request a single combined stream.
-        # yt-dlp's default (bestvideo+bestaudio) fails with the iOS client
-        # since it only serves combined streams, not separate tracks.
-        cmd += ["-f", "best"]
+        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
 
     cmd.append(url)
 
@@ -127,7 +126,7 @@ def get_info():
             "thumbnail": info.get("thumbnail", ""),
             "duration": info.get("duration"),
             "uploader": info.get("uploader", ""),
-            "formats": [],  # No quality picker — yt-dlp selects best automatically
+            "formats": [],
         })
 
     except subprocess.TimeoutExpired:
