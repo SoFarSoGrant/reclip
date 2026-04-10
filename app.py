@@ -30,11 +30,24 @@ def setup_cookies():
 setup_cookies()
 
 def yt_args():
-    # The android client bypasses datacenter bot detection and returns
-    # full format listings including separate video+audio streams.
-    args = ["--extractor-args", "youtube:player_client=android"]
+    po_token = os.environ.get("YT_PO_TOKEN", "").strip()
+    visitor_data = os.environ.get("YT_VISITOR_DATA", "").strip()
+
+    if po_token and visitor_data:
+        # Use web client with PO token — most reliable for datacenter IPs.
+        args = [
+            "--extractor-args",
+            f"youtube:player_client=web;po_token=web+{po_token};visitor_data={visitor_data}",
+        ]
+        print("[reclip] Using PO token auth.")
+    else:
+        # Fallback: android client with cookies only.
+        args = ["--extractor-args", "youtube:player_client=android"]
+        print("[reclip] No PO token set — falling back to android client.")
+
     if os.path.exists(COOKIES_FILE):
         args += ["--cookies", COOKIES_FILE]
+
     return args
 
 jobs = {}
